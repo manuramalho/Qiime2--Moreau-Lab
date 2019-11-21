@@ -1,0 +1,129 @@
+
+
+########  QIIME2  ############  
+#Create folder “emp-paired-end-sequences”
+###put R1, R2, and I1 fastq files in there
+###rename files so they are forward.fastq, reverse.fastq, barcodes.fastq
+
+gzip forward.fastq
+gzip reverse.fastq
+gzip barcodes.fastq
+
+
+gzip paired-end-sequences.qza
+
+###files MUST be .gz to work in pipeline
+
+#Make paired end sequence artifact
+qiime tools import
+  --type EMPPairedEndSequences
+  --input-path emp-paired-end-sequences
+  --output-path paired-end-sequences.qza
+  
+#Make paired end sequence artifact
+
+#Demultiplex sequence reads
+
+qiime demux emp-paired \
+  --m-barcodes-file mappingfile_ManuED_fev2019.txt \
+  --m-barcodes-column BarcodeSequence \
+  --i-seqs paired-end-sequences.qza \
+  --o-per-sample-sequences demux
+
+qiime demux summarize \
+  --i-data demux.qza \
+  --o-visualization demux.qzv \
+  
+  #Denoise with DADA2
+qiime dada2 denoise-paired \
+  --i-demultiplexed-seqs demux.qza \
+  --p-trim-left-r 17 \
+  --p-trunc-len-f 145 \
+  --p-trunc-len-r 145 \
+  --o-representative-sequences rep-seqs \
+  --o-table Argonne_Results/table.qza \
+  --output-dir Argonne_Results/Denoise
+
+###set trim/trunc length based on demultiplexed reads plot
+
+qiime feature-table summarize \
+  --i-table Argonne_Results/table.qza \
+  --o-visualization table.qzv \
+  --m-sample-metadata-file mappingfile_ManuED_fev2019.txt
+
+
+#############
+Taxonomic Assignment
+################
+
+unzip Silva_132_release.zip
+
+SILVA_132_QIIME_release/rep_set/rep_set_16S_only/99/silva_132_99_16S.fna
+
+#####tb ajudou o que tem nesse link https://forum.qiime2.org/t/18s-classifier-using-silva-database-and-emb-primers/361
+
+qiime tools import \
+  --type 'FeatureData[Sequence]' \
+  --input-path SILVA_132_QIIME_release/rep_set/rep_set_16S_only/99/silva_132_99_16S.fna \
+  --output-path SILVA_132_QIIME_release/rep_set/rep_set_16S_only/99/silva_132_99_16S.qza
+
+  
+qiime tools import \
+  --type 'FeatureData[Taxonomy]' \
+  --input-format HeaderlessTSVTaxonomyFormat \
+  --input-path SILVA_132_QIIME_release/taxonomy/16S_only/99/majority_taxonomy_all_levels.txt \
+  --output-path SILVA_132_QIIME_release/taxonomy/16S_only/99/16S_SILVA132_99_taxonomy.qza
+  
+  ############Extract reference reads##########
+  qiime feature-classifier extract-reads \
+  --i-sequences SILVA_132_QIIME_release/rep_set/rep_set_16S_only/99/silva_132_99_16S.qza \
+  --p-f-primer GTGCCAGCMGCCGCGGTAA \
+  --p-r-primer GGACTACHVGGGTWTCTAAT \
+  --p-trunc-len 120 \
+  --o-reads rep_set_16S_only_99_ref-seqs.qza
+  
+  ########################################
+  #####Criando meu classifier#############
+qiime feature-classifier fit-classifier-naive-bayes \
+  --i-reference-reads rep_set_16S_only_99_ref-seqs.qza \
+  --i-reference-taxonomy SILVA_132_QIIME_release/taxonomy/16S_only/99/16S_SILVA132_99_taxonomy.qza \
+  --o-classifier manu_fev2019_classifier.qza
+
+###########rep-seqs.qza veio dos comandos iniciais da sua amostra sequenciada!!
+ qiime feature-classifier classify-sklearn \
+  --i-classifier manu_fev2019_classifier.qza \
+  --i-reads rep-seqs.qza \
+  --o-classification taxonomy_argonne_fev2019.qza
+  
+########################
+####BUG!!!
+#There was an issue with viewing the artifact taxonomy_argonne_fev2019.qza as QIIME 2 Metadata:
+#CategoricalMetadataColumn does not support values with leading or trailing whitespace characters. Column 'Taxon' has the following value: 'D_0__Bacteria;D_1__Actinobacteria;D_2__Rubrobacteria;D_3__Rubrobacterales;D_4__Rubrobacteriaceae;D_5__Rubrobacter;D_6__uncultured bacterium 
+
+####SOLVED bug##########  
+qiime tools export \
+  --input-path taxonomy_argonne_fev2019.qza \
+  --output-path taxonomy-with-spaces
+ 
+qiime metadata tabulate \
+  --m-input-file taxonomy-with-spaces/taxonomy.tsv  \
+  --o-visualization taxonomy-as-metadata.qzv
+
+qiime tools export \
+  --input-path taxonomy-as-metadata.qzv \
+  --output-path taxonomy-as-metadata
+
+qiime tools import \
+  --type 'FeatureData[Taxonomy]' \
+  --input-path taxonomy-as-metadata/metadata.tsv \
+  --output-path taxonomy_argonne_fev2019-without-spaces.qza
+  
+####################Continue with taxonomy_argonne_fev2019-without-spaces.qza
+
+qiime metadata tabulate \
+  --m-input-file taxonomy_argonne_fev2019-without-spaces.qza \
+  --o-visualization taxonomy_argonne_fev2019-without-spaces.qzv 
+  
+  ####After here: DECONTAM IN R!!
+  
+
